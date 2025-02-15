@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Net;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,7 +22,7 @@ public class HealthCheckServer
     public void Start()
     {
         _listener.Start();
-        Console.WriteLine($"HealthCheckServer running on http://localhost:{_listener.Prefixes}");
+        Console.WriteLine($"[INFO] {DateTime.UtcNow:O} - HealthCheckServer running on http://localhost:{_listener.Prefixes}");
 
         Task.Run(async () =>
         {
@@ -34,38 +36,94 @@ public class HealthCheckServer
 
     private void HandleRequest(HttpListenerContext context)
     {
-        string responseText = "OK";
-        int statusCode = 200;
+        string ipAddress = context.Request.RemoteEndPoint?.Address.ToString() ?? "Unknown";
 
-        if (context.Request.RawUrl == "/health")
+        // IPv6 の `::1` を `127.0.0.1` に変換
+        if (ipAddress == "::1")
         {
-            responseText = "Healthy";
+            ipAddress = "127.0.0.1";
+        }
+
+        int statusCode;
+        string responseJson;
+
+        if (context.Request.RawUrl == "/")
+        {
+            // ルート (`/`) にアクセスした場合、簡単なメッセージを返す
+            responseJson = JsonSerializer.Serialize(new
+            {
+                message = "Welcome to HealthCheck Server!",
+                endpoints = new string[] { "/health", "/metrics" },
+                timestamp = DateTime.UtcNow.ToString("O"),
+                ip = ipAddress
+            });
+            statusCode = 200;
+        }
+        else if (context.Request.RawUrl == "/health")
+        {
+            var healthResponse = new HealthCheckResponse(ipAddress, "Healthy");
+            responseJson = JsonSerializer.Serialize(healthResponse);
+            statusCode = 200;
+        }
+        else if (context.Request.RawUrl == "/metrics")
+        {
+            responseJson = JsonSerializer.Serialize(new
+            {
+                timestamp = DateTime.UtcNow.ToString("O"),
+                ip = ipAddress,
+                metrics = new { custom_metric_count = 42 }
+            });
             statusCode = 200;
         }
         else
         {
-            responseText = "Not Found";
+            var errorResponse = new HealthCheckResponse(ipAddress, "Not Found", "Invalid endpoint");
+            responseJson = JsonSerializer.Serialize(errorResponse);
             statusCode = 404;
         }
 
         var response = context.Response;
         response.StatusCode = statusCode;
-        byte[] buffer = Encoding.UTF8.GetBytes(responseText);
+        byte[] buffer = Encoding.UTF8.GetBytes(responseJson);
         response.ContentLength64 = buffer.Length;
-        response.ContentType = "text/plain";
+        response.ContentType = "application/json"; // JSON レスポンス
 
         using (var output = response.OutputStream)
         {
             output.Write(buffer, 0, buffer.Length);
         }
 
-        Console.WriteLine($"[{DateTime.Now}] {context.Request.RawUrl} => {statusCode}");
+        // ログ出力
+        Console.WriteLine($"[INFO] {DateTime.UtcNow:O} - IP: {ipAddress}, URL: {context.Request.RawUrl}, Status: {statusCode}");
     }
 
     public void Stop()
     {
         _cts.Cancel();
         _listener.Stop();
-        Console.WriteLine("HealthCheckServer stopped.");
+        Console.WriteLine($"[INFO] {DateTime.UtcNow:O} - HealthCheckServer stopped.");
+    }
+}
+
+public class HealthCheckResponse
+{
+    [JsonPropertyName("timestamp")]
+    public string Timestamp { get; set; }
+
+    [JsonPropertyName("ip")]
+    public string IpAddress { get; set; }
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; }
+
+    [JsonPropertyName("note")]
+    public string Note { get; set; }
+
+    public HealthCheckResponse(string ipAddress, string status, string note = "System is operational")
+    {
+        Timestamp = DateTime.UtcNow.ToString("O"); // ISO 8601 形式
+        IpAddress = ipAddress;
+        Status = status;
+        Note = note;
     }
 }
