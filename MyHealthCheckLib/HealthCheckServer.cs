@@ -38,11 +38,11 @@ public class HealthCheckServer
     {
         string ipAddress = context.Request.RemoteEndPoint?.Address.ToString() ?? "Unknown";
 
-        // IPv6 の `::1` を `127.0.0.1` に変換
-        if (ipAddress == "::1")
-        {
-            ipAddress = "127.0.0.1";
-        }
+        //// IPv6 の `::1` を `127.0.0.1` に変換
+        //if (ipAddress == "::1")
+        //{
+        //    ipAddress = "127.0.0.1";
+        //}
 
         int statusCode;
         string responseJson;
